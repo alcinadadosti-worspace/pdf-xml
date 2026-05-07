@@ -40,22 +40,34 @@ downloadBtn.addEventListener('click', downloadXML);
 
 // ─── Main flow ───────────────────────────────────────────────────
 async function processFile(file) {
-  if (!file.name.toLowerCase().endsWith('.pdf')) {
-    showError('Por favor, selecione um arquivo PDF.');
+  const name = file.name.toLowerCase();
+  const isPDF = name.endsWith('.pdf');
+  const isXML = name.endsWith('.xml');
+
+  if (!isPDF && !isXML) {
+    showError('Por favor, selecione um arquivo PDF ou XML.');
     return;
   }
 
   reset();
   fileNameEl.textContent = `📎 ${file.name}`;
   fileNameEl.classList.remove('hidden');
-  showProgress(10, 'Lendo PDF...');
 
   try {
-    const text = await extractTextFromPDF(file);
-    showProgress(50, 'Extraindo campos...');
-
-    const data = extractFields(text);
-    showProgress(80, 'Gerando XML...');
+    let data;
+    if (isXML) {
+      showProgress(30, 'Lendo XML...');
+      const text = await file.text();
+      showProgress(70, 'Extraindo campos do XML...');
+      data = extractFieldsFromXML(text);
+    } else {
+      showProgress(10, 'Lendo PDF...');
+      const text = await extractTextFromPDF(file);
+      console.log('=== TEXTO EXTRAÍDO DO PDF ===\n' + text);
+      showProgress(50, 'Extraindo campos do PDF...');
+      data = extractFields(text);
+    }
+    showProgress(90, 'Gerando XML...');
 
     const xml = buildXML(data);
     showProgress(100, 'Concluído!');
@@ -64,13 +76,12 @@ async function processFile(file) {
     xmlOutput.textContent = xml;
     results.classList.remove('hidden');
 
-    // store for download
     downloadBtn.dataset.xml      = xml;
     downloadBtn.dataset.filename = deriveFilename(data);
 
     setTimeout(() => progress.classList.add('hidden'), 800);
   } catch (err) {
-    showError('Erro ao processar o PDF:\n' + err.message);
+    showError('Erro ao processar o arquivo:\n' + err.message);
   }
 }
 
@@ -98,6 +109,176 @@ async function extractTextFromPDF(file) {
     fullText += '\n--- PAGE BREAK ---\n';
   }
   return fullText;
+}
+
+// ─── XML field extraction ─────────────────────────────────────────
+function extractFieldsFromXML(xmlText) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'application/xml');
+
+  const parseErr = doc.querySelector('parsererror');
+  if (parseErr) throw new Error('XML inválido: ' + parseErr.textContent.substring(0, 200));
+
+  const txt = (tagName, ctx) => {
+    if (!ctx) return '';
+    const el = ctx.getElementsByTagName(tagName)[0];
+    return el ? el.textContent.trim() : '';
+  };
+
+  // infNFSe
+  const infNFSe = doc.getElementsByTagName('infNFSe')[0];
+  const idAttr   = infNFSe ? (infNFSe.getAttribute('Id') || '') : '';
+  const chaveAcesso = idAttr.replace(/^NFS/, '');
+
+  const nNFSe       = txt('nNFSe',       infNFSe);
+  const nDFSe       = txt('nDFSe',       infNFSe);
+  const xLocEmi     = txt('xLocEmi',     infNFSe);
+  const xLocPrestacao = txt('xLocPrestacao', infNFSe);
+  const cLocIncid   = txt('cLocIncid',   infNFSe);
+  const xLocIncid   = txt('xLocIncid',   infNFSe);
+  const xTribNac    = txt('xTribNac',    infNFSe);
+  const xNBS        = txt('xNBS',        infNFSe);
+  const verAplic    = txt('verAplic',    infNFSe);
+  const ambGer      = txt('ambGer',      infNFSe) || '2';
+  const cStat       = txt('cStat',       infNFSe) || '100';
+  const dhProc      = txt('dhProc',      infNFSe);
+  const tpEmis      = txt('tpEmis',      infNFSe) || '1';
+  const procEmi     = txt('procEmi',     infNFSe) || '1';
+
+  // emit
+  const emitEl  = infNFSe ? infNFSe.getElementsByTagName('emit')[0] : null;
+  const emitCNPJ  = normalizeCNPJ(txt('CNPJ',   emitEl));
+  const emitNome  = txt('xNome',  emitEl);
+  const emitLgr   = txt('xLgr',   emitEl);
+  const emitNro   = txt('nro',    emitEl);
+  const emitBairro= txt('xBairro',emitEl);
+  const emitCMun  = txt('cMun',   emitEl);
+  const emitUF    = txt('UF',     emitEl);
+  const emitCEP   = normalizeCEP(txt('CEP',  emitEl));
+  const emitFone  = formatPhone(txt('fone',  emitEl));
+  const emitEmail = txt('email',  emitEl);
+
+  // valores NFSe (first direct 'valores' child of infNFSe)
+  let nfseVal = null;
+  if (infNFSe) {
+    for (const c of infNFSe.children) { if (c.tagName === 'valores') { nfseVal = c; break; } }
+  }
+  const vBC    = txt('vBC',        nfseVal);
+  const pAliq  = txt('pAliqAplic', nfseVal);
+  const vISSQN = txt('vISSQN',     nfseVal);
+  const vLiq   = txt('vLiq',       nfseVal);
+
+  // IBSCBS NFSe (first direct 'IBSCBS' child of infNFSe)
+  let nfseIBS = null;
+  if (infNFSe) {
+    for (const c of infNFSe.children) { if (c.tagName === 'IBSCBS') { nfseIBS = c; break; } }
+  }
+  const cLocalidadeIncid = txt('cLocalidadeIncid', nfseIBS);
+  const xLocalidadeIncid = txt('xLocalidadeIncid', nfseIBS);
+  const vBCIBS  = txt('vBC',     nfseIBS);
+  const pIBSUF  = txt('pIBSUF',  nfseIBS);
+  const pIBSMun = txt('pIBSMun', nfseIBS);
+  const pCBS    = txt('pCBS',    nfseIBS);
+  const vTotNF  = txt('vTotNF',  nfseIBS);
+  const vIBSTot = txt('vIBSTot', nfseIBS);
+  const vIBSUF  = txt('vIBSUF',  nfseIBS);
+  const vIBSMun = txt('vIBSMun', nfseIBS);
+  const vCBS    = txt('vCBS',    nfseIBS);
+
+  // infDPS
+  const infDPS   = doc.getElementsByTagName('infDPS')[0];
+  const dhEmi    = txt('dhEmi',   infDPS);
+  const dCompet  = txt('dCompet', infDPS);
+  const nDPS     = txt('nDPS',    infDPS);
+  const serie    = txt('serie',   infDPS) || '001';
+  const tpEmit   = txt('tpEmit',  infDPS) || '1';
+  const cLocEmi  = txt('cLocEmi', infDPS);
+
+  // regTrib (inside prest)
+  const prestEl   = infDPS ? infDPS.getElementsByTagName('prest')[0]   : null;
+  const regTribEl = prestEl ? prestEl.getElementsByTagName('regTrib')[0] : null;
+  const opSimpNac  = txt('opSimpNac',  regTribEl) || '1';
+  const regEspTrib = txt('regEspTrib', regTribEl) || '0';
+
+  // toma
+  const tomaEl    = infDPS ? infDPS.getElementsByTagName('toma')[0] : null;
+  const tomaCNPJ  = normalizeCNPJ(txt('CNPJ',   tomaEl));
+  const tomaNome  = txt('xNome',  tomaEl);
+  const tomaLgr   = txt('xLgr',   tomaEl);
+  const tomaNro   = txt('nro',    tomaEl);
+  const tomaBairro= txt('xBairro',tomaEl);
+  const tomaCMun  = txt('cMun',   tomaEl);
+  const tomaCEP   = normalizeCEP(txt('CEP',  tomaEl));
+  const tomaFone  = formatPhone(txt('fone',  tomaEl));
+  const tomaEmail = txt('email',  tomaEl);
+
+  // serv
+  const servEl    = infDPS ? infDPS.getElementsByTagName('serv')[0] : null;
+  const xDescServ    = txt('xDescServ',    servEl);
+  const cTribNac     = txt('cTribNac',     servEl);
+  const cNBS         = txt('cNBS',         servEl);
+  const cIntContrib  = txt('cIntContrib',  servEl);
+  const cLocPrestacao= txt('cLocPrestacao',servEl);
+  const xInfComp     = txt('xInfComp',     servEl);
+  const docRef       = txt('docRef',       servEl) || '0000000000';
+
+  // valores DPS (first direct 'valores' child of infDPS)
+  let dpsVal = null;
+  if (infDPS) {
+    for (const c of infDPS.children) { if (c.tagName === 'valores') { dpsVal = c; break; } }
+  }
+  const vServPrestEl = dpsVal ? dpsVal.getElementsByTagName('vServPrest')[0]      : null;
+  const vServ        = txt('vServ', vServPrestEl);
+  const vDescEl      = dpsVal ? dpsVal.getElementsByTagName('vDescCondIncond')[0] : null;
+  const vDescIncond  = txt('vDescIncond', vDescEl);
+
+  // trib
+  const tribEl    = dpsVal ? dpsVal.getElementsByTagName('trib')[0] : null;
+  const tribMunEl = tribEl ? tribEl.getElementsByTagName('tribMun')[0] : null;
+  const tpRetISSQN= txt('tpRetISSQN', tribMunEl) || '1';
+
+  // PIS/COFINS
+  const pisEl       = tribEl ? tribEl.getElementsByTagName('piscofins')[0] : null;
+  const CST_PIS     = txt('CST',            pisEl) || '01';
+  const vBCPis      = txt('vBCPisCofins',   pisEl);
+  const pAliqPis    = txt('pAliqPis',       pisEl);
+  const pAliqCof    = txt('pAliqCofins',    pisEl);
+  const vPis        = txt('vPis',           pisEl);
+  const vCofins     = txt('vCofins',        pisEl);
+  const tpRetPisCofins = txt('tpRetPisCofins', pisEl) || '2';
+
+  // IBSCBS DPS (first direct 'IBSCBS' child of infDPS)
+  let dpsIBS = null;
+  if (infDPS) {
+    for (const c of infDPS.children) { if (c.tagName === 'IBSCBS') { dpsIBS = c; break; } }
+  }
+  const cIndOp     = txt('cIndOp', dpsIBS) || '100301';
+  const gIBSCBSEl  = dpsIBS ? dpsIBS.getElementsByTagName('gIBSCBS')[0] : null;
+  const CST_IBS    = txt('CST',        gIBSCBSEl) || '000';
+  const cClassTrib = txt('cClassTrib', gIBSCBSEl) || '000001';
+
+  return {
+    chaveAcesso,
+    nNFSe, nDFSe, nDPS, dhEmi, dCompet,
+    xLocEmi, xLocPrestacao, cLocIncid, xLocIncid,
+    verAplic, ambGer, cStat, dhProc,
+    tpEmis, procEmi, serie, tpEmit,
+    emitCNPJ, emitNome, emitLgr, emitNro, emitBairro,
+    emitCEP, emitMun: '', emitUF, emitFone, emitEmail,
+    emitCMun: emitCMun || cLocEmi,
+    tomaCNPJ, tomaNome, tomaLgr, tomaNro, tomaBairro,
+    tomaCEP, tomaMun: '', tomaUF: '', tomaFone, tomaEmail, tomaCMun,
+    xDescServ, cTribNac, cNBS, xTribNac, xNBS, cIntContrib,
+    cLocPrestacao, xInfComp, docRef,
+    vServ, vDescIncond, vBC, pAliq, vISSQN, vLiq,
+    vBCIBS, pIBSUF, pIBSMun, pCBS,
+    vIBSTot, vIBSUF, vIBSMun, vCBS, vTotNF,
+    cLocalidadeIncid, xLocalidadeIncid,
+    vBCPis, pAliqPis, pAliqCof, vPis, vCofins,
+    CST_PIS, tpRetPisCofins,
+    opSimpNac, regEspTrib, tpRetISSQN,
+    cIndOp, cClassTrib, CST_IBS,
+  };
 }
 
 // ─── Field extraction ─────────────────────────────────────────────
@@ -621,6 +802,15 @@ function deriveFilename(d) {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
+
+/** Format raw digits as Brazilian phone number */
+function formatPhone(s) {
+  if (!s) return '';
+  const d = s.replace(/\D/g, '');
+  if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  return s;
+}
 
 /** Remove formatting from CNPJ and return 14 digits */
 function normalizeCNPJ(s) {
