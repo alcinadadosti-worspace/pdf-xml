@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NFS-e PDF → XML Converter</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>NFS-e Converter</h1>
+      <p class="subtitle">Converta DANFSe (PDF) para XML automaticamente</p>
+    </header>
+
+    <!-- Upload -->
+    <section class="upload-section">
+      <label class="upload-area" id="uploadArea">
+        <input type="file" id="fileInput" accept=".pdf" hidden />
+        <div class="upload-icon">📄</div>
+        <p class="upload-title">Arraste o PDF aqui ou clique para selecionar</p>
+        <p class="upload-hint">Suporta DANFSe / NFS-e Nacional</p>
+      </label>
+      <div id="fileName" class="file-name hidden"></div>
+    </section>
+
+    <!-- Progress -->
+    <div id="progress" class="progress hidden">
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <p id="progressText">Processando...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="errorBox" class="error-box hidden"></div>
+
+    <!-- Results -->
+    <div id="results" class="results hidden">
+
+      <!-- Extracted Data Preview -->
+      <section class="panel">
+        <h2>Dados Extraídos</h2>
+        <div id="dataPreview" class="data-grid"></div>
+      </section>
+
+      <!-- XML Output -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>XML Gerado</h2>
+          <button id="downloadBtn" class="btn-download">⬇ Baixar XML</button>
+        </div>
+        <pre id="xmlOutput" class="xml-code"></pre>
+      </section>
+    </div>
+  </div>
+
+  <!-- pdf.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // Configure pdf.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>

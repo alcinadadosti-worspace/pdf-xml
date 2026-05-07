@@ -1,0 +1,196 @@
+/* ─── Reset & Base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+  min-height: 100vh;
+  padding: 2rem 1rem;
+}
+
+/* ─── Container ─────────────────────────────────────────────────── */
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* ─── Header ────────────────────────────────────────────────────── */
+header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+header h1 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.subtitle {
+  margin-top: .4rem;
+  color: #94a3b8;
+  font-size: .95rem;
+}
+
+/* ─── Upload ────────────────────────────────────────────────────── */
+.upload-section { margin-bottom: 1.5rem; }
+
+.upload-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  border: 2px dashed #334155;
+  border-radius: 16px;
+  padding: 3rem 1rem;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.upload-area:hover,
+.upload-area.dragover {
+  border-color: #38bdf8;
+  background: rgba(56,189,248,.05);
+}
+.upload-icon { font-size: 3rem; }
+.upload-title { font-size: 1.1rem; font-weight: 600; color: #cbd5e1; }
+.upload-hint  { font-size: .85rem; color: #64748b; }
+
+.file-name {
+  margin-top: .75rem;
+  text-align: center;
+  font-size: .9rem;
+  color: #38bdf8;
+}
+
+/* ─── Progress ──────────────────────────────────────────────────── */
+.progress { margin: 1.5rem 0; }
+.progress-bar {
+  height: 6px;
+  background: #1e293b;
+  border-radius: 99px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  transition: width .3s ease;
+  border-radius: 99px;
+}
+#progressText {
+  text-align: center;
+  margin-top: .5rem;
+  font-size: .85rem;
+  color: #94a3b8;
+}
+
+/* ─── Error ─────────────────────────────────────────────────────── */
+.error-box {
+  background: #450a0a;
+  border: 1px solid #f87171;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  color: #fca5a5;
+  font-size: .9rem;
+  white-space: pre-wrap;
+}
+
+/* ─── Results ───────────────────────────────────────────────────── */
+.results { display: flex; flex-direction: column; gap: 1.5rem; }
+
+.panel {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  padding: 1.5rem;
+}
+.panel h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.panel-header h2 { margin-bottom: 0; }
+
+/* ─── Data Grid ─────────────────────────────────────────────────── */
+.data-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .5rem 1.5rem;
+}
+@media (max-width: 600px) {
+  .data-grid { grid-template-columns: 1fr; }
+}
+
+.data-item { display: flex; flex-direction: column; gap: .15rem; }
+.data-item .label {
+  font-size: .72rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.data-item .value {
+  font-size: .9rem;
+  color: #e2e8f0;
+  word-break: break-word;
+}
+.data-item .value.missing { color: #f87171; font-style: italic; }
+
+/* Section divider inside grid */
+.data-section-title {
+  grid-column: 1 / -1;
+  font-size: .75rem;
+  font-weight: 700;
+  color: #38bdf8;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-top: .5rem;
+  padding-top: .5rem;
+  border-top: 1px solid #334155;
+}
+.data-section-title:first-child { border-top: none; margin-top: 0; }
+
+/* ─── XML code ──────────────────────────────────────────────────── */
+.xml-code {
+  background: #0f1117;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 1.25rem;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: .78rem;
+  line-height: 1.6;
+  color: #7dd3fc;
+  overflow-x: auto;
+  max-height: 480px;
+  white-space: pre;
+}
+
+/* ─── Buttons ───────────────────────────────────────────────────── */
+.btn-download {
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  color: #0f1117;
+  border: none;
+  border-radius: 8px;
+  padding: .5rem 1.1rem;
+  font-size: .88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .2s, transform .1s;
+}
+.btn-download:hover  { opacity: .9; transform: translateY(-1px); }
+.btn-download:active { transform: translateY(0); }
+
+/* ─── Utility ───────────────────────────────────────────────────── */
+.hidden { display: none !important; }
