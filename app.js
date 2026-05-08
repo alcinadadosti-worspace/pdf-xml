@@ -60,11 +60,13 @@ async function processFile(file) {
       const text = await file.text();
       showProgress(70, 'Extraindo campos do XML...');
       data = extractFieldsFromXML(text);
+      data.sourceType = 'xml';
     } else {
       showProgress(10, 'Lendo PDF...');
       const text = await extractTextFromPDF(file);
       showProgress(50, 'Extraindo campos do PDF...');
       data = extractFields(text);
+      data.sourceType = 'pdf';
     }
     showProgress(90, 'Gerando XML...');
 
@@ -1027,7 +1029,8 @@ function buildPisCofins(d, opt) {
 function renderPreview(d) {
   const sections = [
     { title: 'Identificação', fields: [
-      ['Número NFS-e', d.nNFSe], ['Número DPS', d.nDPS], ['Número DFSe', d.nDFSe],
+      ['Número NFS-e', d.nNFSe], ['Número DPS', d.nDPS],
+      ['Número DFSe', d.nDFSe, d.sourceType === 'pdf' ? 'Não consta no PDF' : 'Não encontrado'],
       ['Data de Emissão', d.dhEmi], ['Competência', d.dCompet],
       ['Loc. Emissão', d.xLocEmi], ['Loc. Prestação', d.xLocPrestacao],
     ]},
@@ -1058,10 +1061,10 @@ function renderPreview(d) {
 
   dataPreview.innerHTML = sections.map(sec => `
     <div class="data-section-title">${sec.title}</div>
-    ${sec.fields.map(([label, value]) => `
+    ${sec.fields.map(([label, value, emptyText]) => `
       <div class="data-item">
         <span class="label">${label}</span>
-        <span class="value ${value ? '' : 'missing'}">${value || 'Não encontrado'}</span>
+        <span class="value ${value || emptyText ? '' : 'missing'}">${value || emptyText || 'Não encontrado'}</span>
       </div>`).join('')}
   `).join('');
 }
