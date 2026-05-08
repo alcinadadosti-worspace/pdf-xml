@@ -191,6 +191,7 @@ function extractFieldsFromXML(xmlText) {
   const dhEmi    = txt('dhEmi',   infDPS);
   const dCompet  = txt('dCompet', infDPS);
   const nDPS     = txt('nDPS',    infDPS);
+  const dpsVerAplic = txt('verAplic', infDPS);
   const serie    = txt('serie',   infDPS) || '001';
   const tpEmit   = txt('tpEmit',  infDPS) || '1';
   const cLocEmi  = txt('cLocEmi', infDPS);
@@ -262,7 +263,7 @@ function extractFieldsFromXML(xmlText) {
     chaveAcesso,
     nNFSe, nDFSe, nDPS, dhEmi, dCompet,
     xLocEmi, xLocPrestacao, cLocIncid, xLocIncid,
-    verAplic, ambGer, cStat, dhProc,
+    verAplic, dpsVerAplic, ambGer, cStat, dhProc,
     tpEmis, procEmi, serie, tpEmit,
     emitCNPJ, emitNome, emitLgr, emitNro, emitBairro,
     emitCEP, emitMun: '', emitUF, emitFone, emitEmail,
@@ -397,6 +398,10 @@ function extractNationalDanfseFields(text) {
     if (!isFinite(n) || !isFinite(b) || b === 0) return '';
     return ((n / b) * 100).toFixed(2);
   };
+  const fmtMoney2 = value => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toFixed(2) : '';
+  };
 
   const prestador = section([/^emitente da nfs-e$/], [/^tomador do servico$/]);
   const tomador = section([/^tomador do servico$/], [/^intermediario do servico/, /^servico prestado$/]);
@@ -484,6 +489,17 @@ function extractNationalDanfseFields(text) {
   const vPis = moneyAfter(tributacaoFederal, [/^pis - debito apuracao propria$/]);
   const vCofins = moneyAfter(tributacaoFederal, [/^cofins - debito apuracao propria$/]);
   const vBCPis = (vPis || vCofins) ? vBC : '';
+  const hasIbsCbsText = /IBS\s+e\s+CBS/i.test(xInfComp);
+  const vBCIBS = hasIbsCbsText
+    ? fmtMoney2(parseFloat(vBC || '0') - parseFloat(vISSQN || '0') - parseFloat(vPis || '0') - parseFloat(vCofins || '0'))
+    : '';
+  const pIBSUF = vBCIBS ? '0.10' : '';
+  const pIBSMun = vBCIBS ? '0.00' : '';
+  const pCBS = vBCIBS ? '0.90' : '';
+  const vIBSUF = vBCIBS ? fmtMoney2(parseFloat(vBCIBS) * parseFloat(pIBSUF) / 100) : '';
+  const vIBSMun = vBCIBS ? '0.00' : '';
+  const vIBSTot = vBCIBS ? vIBSUF : '';
+  const vCBS = vBCIBS ? fmtMoney2(parseFloat(vBCIBS) * parseFloat(pCBS) / 100) : '';
 
   return {
     nNFSe,
@@ -496,7 +512,8 @@ function extractNationalDanfseFields(text) {
     xLocPrestacao: locPrest.city,
     cLocIncid: emitCMun,
     xLocIncid: emitCity.city,
-    verAplic: '',
+    verAplic: 'SefinNacional_1.6.0',
+    dpsVerAplic: 'SAP ECG',
     ambGer: '2',
     cStat: '100',
     dhProc,
@@ -541,14 +558,14 @@ function extractNationalDanfseFields(text) {
     pAliq,
     vISSQN,
     vLiq,
-    vBCIBS: '',
-    pIBSUF: '',
-    pIBSMun: '',
-    pCBS: '',
-    vIBSTot: '',
-    vIBSUF: '',
-    vIBSMun: '',
-    vCBS: '',
+    vBCIBS,
+    pIBSUF,
+    pIBSMun,
+    pCBS,
+    vIBSTot,
+    vIBSUF,
+    vIBSMun,
+    vCBS,
     vTotNF: vLiq,
     cLocalidadeIncid: cLocPrestacao,
     xLocalidadeIncid: locPrest.city,
@@ -889,7 +906,7 @@ function buildXML(d) {
       <infDPS Id="${e(idDPS)}">
         <tpAmb>1</tpAmb>
         ${opt('dhEmi', dhEmi)}
-        ${opt('verAplic', d.verAplic)}
+        ${opt('verAplic', d.dpsVerAplic || d.verAplic)}
         ${opt('serie', d.serie)}
         ${opt('nDPS', d.nDPS || d.nNFSe)}
         ${opt('dCompet', dComp)}
