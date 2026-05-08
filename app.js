@@ -63,7 +63,6 @@ async function processFile(file) {
     } else {
       showProgress(10, 'Lendo PDF...');
       const text = await extractTextFromPDF(file);
-      console.log('=== TEXTO EXTRAÍDO DO PDF ===\n' + text);
       showProgress(50, 'Extraindo campos do PDF...');
       data = extractFields(text);
     }
@@ -290,7 +289,233 @@ function extractFieldsFromXML(xmlText) {
   Brazilian PDFs are noisy — every regex is wrapped in a try/catch.
 */
 
+function extractNationalDanfseFields(text) {
+  const raw = text.replace(/\r/g, '');
+  if (!/DANFSe/i.test(raw) || !/Documento Auxiliar da NFS-e/i.test(raw)) {
+    return null;
+  }
+
+  const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+  const normalizeText = value => String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  const lineMatches = (line, patterns) => {
+    const normalized = normalizeText(line);
+    return patterns.some(pattern => pattern.test(normalized));
+  };
+
+  const findLineIndex = (sourceLines, patterns, start = 0) => {
+    for (let i = start; i < sourceLines.length; i++) {
+      if (lineMatches(sourceLines[i], patterns)) return i;
+    }
+    return -1;
+  };
+
+  const valueAfter = (sourceLines, patterns, start = 0) => {
+    const index = findLineIndex(sourceLines, patterns, start);
+    if (index < 0) return '';
+    for (let i = index + 1; i < sourceLines.length; i++) {
+      const value = sourceLines[i].trim();
+      if (!value) continue;
+      return value === '-' ? '' : value;
+    }
+    return '';
+  };
+
+  const section = (startPatterns, endPatterns) => {
+    const start = findLineIndex(lines, startPatterns);
+    if (start < 0) return [];
+    let end = lines.length;
+    for (let i = start + 1; i < lines.length; i++) {
+      if (lineMatches(lines[i], endPatterns)) {
+        end = i;
+        break;
+      }
+    }
+    return lines.slice(start + 1, end);
+  };
+
+  const onlyDigits = value => (value || '').replace(/\D/g, '');
+
+  const parseAddress = value => {
+    const parts = (value || '').split(',').map(part => part.trim()).filter(Boolean);
+    return {
+      street: parts[0] || '',
+      number: parts[1] || '',
+      district: parts.slice(2).join(', '),
+    };
+  };
+
+  const parseCityUF = value => {
+    const match = (value || '').match(/^(.+?)\s*-\s*([A-Z]{2})$/i);
+    return {
+      city: match ? match[1].trim() : (value || '').trim(),
+      uf: match ? match[2].toUpperCase() : '',
+    };
+  };
+
+  const cityCode = (city, uf) => {
+    const key = `${normalizeText(city)}|${String(uf || '').toUpperCase()}`;
+    const codes = {
+      'sao jose dos pinhais|PR': '4125506',
+      'penedo|AL': '2706703',
+    };
+    return codes[key] || '';
+  };
+
+  const moneyAfter = (sourceLines, patterns) => normalizeMoney(valueAfter(sourceLines, patterns));
+  const percentAfter = (sourceLines, patterns) => normalizeMoney(valueAfter(sourceLines, patterns).replace('%', ''));
+  const toRate = (value, base) => {
+    const n = parseFloat(value);
+    const b = parseFloat(base);
+    if (!isFinite(n) || !isFinite(b) || b === 0) return '';
+    return ((n / b) * 100).toFixed(2);
+  };
+
+  const prestador = section([/^emitente da nfs-e$/], [/^tomador do servico$/]);
+  const tomador = section([/^tomador do servico$/], [/^intermediario do servico/, /^servico prestado$/]);
+  const servico = section([/^servico prestado$/], [/^tributacao municipal$/]);
+  const tributacaoMunicipal = section([/^tributacao municipal$/], [/^tributacao federal$/]);
+  const tributacaoFederal = section([/^tributacao federal$/], [/^valor total da nfs-e$/]);
+  const valorTotal = section([/^valor total da nfs-e$/], [/^totais aproximados dos tributos$/]);
+  const informacoes = section([/^informacoes complementares$/], [/^--- page break ---$/]);
+
+  const chaveAcesso = onlyDigits(valueAfter(lines, [/^chave de acesso da nfs-e$/]));
+  const nNFSe = onlyDigits(valueAfter(lines, [/^numero da nfs-e$/]));
+  const nDPS = onlyDigits(valueAfter(lines, [/^numero da dps$/]));
+  const serieRaw = onlyDigits(valueAfter(lines, [/^serie da dps$/]));
+  const serie = (serieRaw || '1').padStart(3, '0');
+  const dCompet = valueAfter(lines, [/^competencia da nfs-e$/]);
+  const dhProc = toISODate(valueAfter(lines, [/^data e hora da emissao da nfs-e$/]));
+  const dhEmi = toISODate(valueAfter(lines, [/^data e hora da emissao da dps$/]));
+
+  const emitAddress = parseAddress(valueAfter(prestador, [/^endereco$/]));
+  const emitCity = parseCityUF(valueAfter(prestador, [/^municipio$/]));
+  const emitCMun = cityCode(emitCity.city, emitCity.uf) || chaveAcesso.substring(0, 7);
+
+  const tomaAddress = parseAddress(valueAfter(tomador, [/^endereco$/]));
+  const tomaCity = parseCityUF(valueAfter(tomador, [/^municipio$/]));
+  const tomaCMun = cityCode(tomaCity.city, tomaCity.uf);
+
+  const locPrest = parseCityUF(valueAfter(servico, [/^local da prestacao$/]));
+  const cLocPrestacao = cityCode(locPrest.city, locPrest.uf) || tomaCMun;
+
+  const tributacaoNacional = valueAfter(servico, [/^codigo de tributacao nacional$/]);
+  const tribMatch = tributacaoNacional.match(/^([\d.]+)\s*-\s*(.+)$/);
+  const cTribNac = tribMatch ? onlyDigits(tribMatch[1]) : onlyDigits(tributacaoNacional);
+  const xTribNac = tribMatch ? tribMatch[2].trim() : '';
+  const xNBS = xTribNac.replace(/\s*\(.+\)\.?$/, '').trim();
+
+  const infoText = informacoes.join(' ').replace(/\s+/g, ' ').trim();
+  const docRefMatch = infoText.match(/\|\s*Doc Ref:\s*([0-9]+)/i);
+  const nbsMatch = infoText.match(/\|\s*NBS:\s*([0-9]+)/i);
+  const xInfComp = infoText
+    .replace(/^Inf Cont:\s*/i, '')
+    .replace(/\s*\|\s*Doc Ref:.*$/i, '')
+    .trim();
+
+  const vServ = moneyAfter(tributacaoMunicipal, [/^valor do servico$/]);
+  const vDescIncond = moneyAfter(tributacaoMunicipal, [/^desconto incondicionado$/]);
+  const vBC = moneyAfter(tributacaoMunicipal, [/^bc issqn$/]);
+  const pAliq = percentAfter(tributacaoMunicipal, [/^aliquota aplicada$/]);
+  const vISSQN = moneyAfter(tributacaoMunicipal, [/^issqn apurado$/]);
+  const vLiq = moneyAfter(valorTotal, [/^valor liquido da nfs-e$/]) || vBC;
+  const vPis = moneyAfter(tributacaoFederal, [/^pis - debito apuracao propria$/]);
+  const vCofins = moneyAfter(tributacaoFederal, [/^cofins - debito apuracao propria$/]);
+  const vBCPis = (vPis || vCofins) ? vBC : '';
+
+  return {
+    nNFSe,
+    nDFSe: '',
+    nDPS,
+    chaveAcesso,
+    dhEmi,
+    dCompet,
+    xLocEmi: emitCity.city,
+    xLocPrestacao: locPrest.city,
+    cLocIncid: emitCMun,
+    xLocIncid: emitCity.city,
+    verAplic: '',
+    ambGer: '2',
+    cStat: '100',
+    dhProc,
+    tpEmis: '1',
+    procEmi: '1',
+    serie,
+    tpEmit: '1',
+    emitCNPJ: normalizeCNPJ(valueAfter(prestador, [/^cnpj \/ cpf \/ nif$/])),
+    emitNome: valueAfter(prestador, [/^nome \/ nome empresarial$/]),
+    emitLgr: emitAddress.street,
+    emitNro: emitAddress.number,
+    emitBairro: emitAddress.district,
+    emitCEP: normalizeCEP(valueAfter(prestador, [/^cep$/])),
+    emitMun: emitCity.city,
+    emitUF: emitCity.uf,
+    emitFone: formatPhone(valueAfter(prestador, [/^telefone$/])),
+    emitEmail: valueAfter(prestador, [/^e-mail$/]),
+    emitCMun,
+    tomaCNPJ: normalizeCNPJ(valueAfter(tomador, [/^cnpj \/ cpf \/ nif$/])),
+    tomaNome: valueAfter(tomador, [/^nome \/ nome empresarial$/]),
+    tomaLgr: tomaAddress.street,
+    tomaNro: tomaAddress.number,
+    tomaBairro: tomaAddress.district,
+    tomaCEP: normalizeCEP(valueAfter(tomador, [/^cep$/])),
+    tomaMun: tomaCity.city,
+    tomaUF: tomaCity.uf,
+    tomaFone: formatPhone(valueAfter(tomador, [/^telefone$/])),
+    tomaEmail: valueAfter(tomador, [/^e-mail$/]),
+    tomaCMun,
+    xDescServ: valueAfter(servico, [/^descricao do servico$/]),
+    cTribNac,
+    cNBS: nbsMatch ? nbsMatch[1] : '',
+    xTribNac,
+    xNBS,
+    cIntContrib: '',
+    cLocPrestacao,
+    xInfComp,
+    docRef: docRefMatch ? docRefMatch[1] : '0000000000',
+    vServ,
+    vDescIncond,
+    vBC,
+    pAliq,
+    vISSQN,
+    vLiq,
+    vBCIBS: '',
+    pIBSUF: '',
+    pIBSMun: '',
+    pCBS: '',
+    vIBSTot: '',
+    vIBSUF: '',
+    vIBSMun: '',
+    vCBS: '',
+    vTotNF: vLiq,
+    cLocalidadeIncid: cLocPrestacao,
+    xLocalidadeIncid: locPrest.city,
+    vBCPis,
+    pAliqPis: toRate(vPis, vBCPis),
+    pAliqCof: toRate(vCofins, vBCPis),
+    vPis,
+    vCofins,
+    CST_PIS: '01',
+    tpRetPisCofins: '2',
+    opSimpNac: '1',
+    regEspTrib: '0',
+    tpRetISSQN: '1',
+    cIndOp: '100301',
+    cClassTrib: '000001',
+    CST_IBS: '000',
+  };
+}
+
 function extractFields(text) {
+  const nationalDanfse = extractNationalDanfseFields(text);
+  if (nationalDanfse) return nationalDanfse;
+
   // Normalise: collapse multiple spaces, keep newlines
   const t = text.replace(/ {2,}/g, ' ').replace(/\r/g, '');
 
@@ -550,9 +775,13 @@ function buildXML(d) {
     ? `NFS${d.chaveAcesso}`
     : `NFS${d.emitCNPJ}${d.nNFSe || '0'}`;
 
-  const idDPS = d.chaveAcesso
-    ? `DPS${d.chaveAcesso.substring(0, 45)}`
-    : `DPS${d.emitCNPJ}${(d.nDPS || d.nNFSe || '0').padStart(10, '0')}`;
+  const dpsLocation = d.emitCMun || d.cLocIncid || (d.chaveAcesso || '').substring(0, 7);
+  const dpsInscriptionType = d.emitCNPJ ? '2' : '1';
+  const dpsSerie = String(d.serie || '1').replace(/\D/g, '').padStart(5, '0');
+  const dpsNumber = String(d.nDPS || d.nNFSe || '0').replace(/\D/g, '').padStart(15, '0');
+  const idDPS = dpsLocation && d.emitCNPJ
+    ? `DPS${dpsLocation}${dpsInscriptionType}${d.emitCNPJ}${dpsSerie}${dpsNumber}`
+    : `DPS${d.emitCNPJ}${dpsNumber}`;
 
   // Convert date dd/mm/yyyy → yyyy-mm-dd if needed
   const dhEmi  = toISODate(d.dhEmi);
@@ -729,7 +958,7 @@ function buildPisCofins(d, opt) {
   if (!d.vBCPis && !d.pAliqPis) return '';
   return `<tribFed>
               <piscofins>
-                <CST>${e(d.CST_PIS)}</CST>
+                <CST>${xmlEscape(d.CST_PIS)}</CST>
                 ${opt('vBCPisCofins', d.vBCPis)}
                 ${opt('pAliqPis', d.pAliqPis)}
                 ${opt('pAliqCofins', d.pAliqCof)}
@@ -803,13 +1032,11 @@ function deriveFilename(d) {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-/** Format raw digits as Brazilian phone number */
+/** Keep phone values XML-safe: only digits are accepted by most NFS-e layouts. */
 function formatPhone(s) {
   if (!s) return '';
   const d = s.replace(/\D/g, '');
-  if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
-  return s;
+  return d;
 }
 
 /** Remove formatting from CNPJ and return 14 digits */
@@ -830,7 +1057,8 @@ function normalizeCEP(s) {
  */
 function normalizeMoney(s) {
   if (!s) return '';
-  s = s.trim();
+  s = s.replace(/[^\d,.-]/g, '').trim();
+  if (!s || s === '-') return '';
   // If there's a comma it's the decimal separator (BR format)
   if (s.includes(',')) {
     return s.replace(/\./g, '').replace(',', '.');
