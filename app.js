@@ -327,6 +327,22 @@ function extractNationalDanfseFields(text) {
     return '';
   };
 
+  const valueAfterOccurrence = (patterns, occurrence = 0, sourceLines = lines) => {
+    let matches = 0;
+    for (let i = 0; i < sourceLines.length; i++) {
+      if (!lineMatches(sourceLines[i], patterns)) continue;
+      if (matches === occurrence) {
+        for (let j = i + 1; j < sourceLines.length; j++) {
+          const value = sourceLines[j].trim();
+          if (!value) continue;
+          return value === '-' ? '' : value;
+        }
+      }
+      matches++;
+    }
+    return '';
+  };
+
   const section = (startPatterns, endPatterns) => {
     const start = findLineIndex(lines, startPatterns);
     if (start < 0) return [];
@@ -385,6 +401,14 @@ function extractNationalDanfseFields(text) {
   const valorTotal = section([/^valor total da nfs-e$/], [/^totais aproximados dos tributos$/]);
   const informacoes = section([/^informacoes complementares$/], [/^--- page break ---$/]);
 
+  const cnpjCpfNifLabel = [/^cnpj \/ cpf \/ nif$/];
+  const phoneLabel = [/^telefone$/];
+  const nameLabel = [/^nome \/ nome empresarial$/];
+  const emailLabel = [/^e-mail$/];
+  const addressLabel = [/^endereco$/];
+  const cityLabel = [/^municipio$/];
+  const cepLabel = [/^cep$/];
+
   const chaveAcesso = onlyDigits(valueAfter(lines, [/^chave de acesso da nfs-e$/]));
   const nNFSe = onlyDigits(valueAfter(lines, [/^numero da nfs-e$/]));
   const nDPS = onlyDigits(valueAfter(lines, [/^numero da dps$/]));
@@ -398,8 +422,13 @@ function extractNationalDanfseFields(text) {
   const emitCity = parseCityUF(valueAfter(prestador, [/^municipio$/]));
   const emitCMun = cityCode(emitCity.city, emitCity.uf) || chaveAcesso.substring(0, 7);
 
-  const tomaAddress = parseAddress(valueAfter(tomador, [/^endereco$/]));
-  const tomaCity = parseCityUF(valueAfter(tomador, [/^municipio$/]));
+  const tomaCNPJRaw = valueAfter(tomador, cnpjCpfNifLabel) || valueAfterOccurrence(cnpjCpfNifLabel, 1);
+  const tomaPhoneRaw = valueAfter(tomador, phoneLabel) || valueAfterOccurrence(phoneLabel, 1);
+  const tomaName = valueAfter(tomador, nameLabel) || valueAfterOccurrence(nameLabel, 1);
+  const tomaEmailValue = valueAfter(tomador, emailLabel) || valueAfterOccurrence(emailLabel, 1);
+  const tomaAddress = parseAddress(valueAfter(tomador, addressLabel) || valueAfterOccurrence(addressLabel, 1));
+  const tomaCity = parseCityUF(valueAfter(tomador, cityLabel) || valueAfterOccurrence(cityLabel, 1));
+  const tomaCEPValue = valueAfter(tomador, cepLabel) || valueAfterOccurrence(cepLabel, 1);
   const tomaCMun = cityCode(tomaCity.city, tomaCity.uf);
 
   const locPrest = parseCityUF(valueAfter(servico, [/^local da prestacao$/]));
@@ -459,16 +488,16 @@ function extractNationalDanfseFields(text) {
     emitFone: formatPhone(valueAfter(prestador, [/^telefone$/])),
     emitEmail: valueAfter(prestador, [/^e-mail$/]),
     emitCMun,
-    tomaCNPJ: normalizeCNPJ(valueAfter(tomador, [/^cnpj \/ cpf \/ nif$/])),
-    tomaNome: valueAfter(tomador, [/^nome \/ nome empresarial$/]),
+    tomaCNPJ: normalizeCNPJ(tomaCNPJRaw),
+    tomaNome: tomaName,
     tomaLgr: tomaAddress.street,
     tomaNro: tomaAddress.number,
     tomaBairro: tomaAddress.district,
-    tomaCEP: normalizeCEP(valueAfter(tomador, [/^cep$/])),
+    tomaCEP: normalizeCEP(tomaCEPValue),
     tomaMun: tomaCity.city,
     tomaUF: tomaCity.uf,
-    tomaFone: formatPhone(valueAfter(tomador, [/^telefone$/])),
-    tomaEmail: valueAfter(tomador, [/^e-mail$/]),
+    tomaFone: formatPhone(tomaPhoneRaw),
+    tomaEmail: tomaEmailValue,
     tomaCMun,
     xDescServ: valueAfter(servico, [/^descricao do servico$/]),
     cTribNac,
