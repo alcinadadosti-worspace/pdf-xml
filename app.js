@@ -358,6 +358,9 @@ function extractNationalDanfseFields(text) {
 
   const onlyDigits = value => (value || '').replace(/\D/g, '');
 
+  const allMatches = pattern => [...raw.matchAll(pattern)].map(match => (match[1] || match[0]).trim());
+  const occurrence = (values, index) => values[index] || '';
+
   const parseAddress = value => {
     const parts = (value || '').split(',').map(part => part.trim()).filter(Boolean);
     return {
@@ -429,7 +432,29 @@ function extractNationalDanfseFields(text) {
   const tomaAddress = parseAddress(valueAfter(tomador, addressLabel) || valueAfterOccurrence(addressLabel, 1));
   const tomaCity = parseCityUF(valueAfter(tomador, cityLabel) || valueAfterOccurrence(cityLabel, 1));
   const tomaCEPValue = valueAfter(tomador, cepLabel) || valueAfterOccurrence(cepLabel, 1);
-  const tomaCMun = cityCode(tomaCity.city, tomaCity.uf);
+
+  const cnpjFallbacks = allMatches(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g);
+  const phoneFallbacks = allMatches(/\(\d{2}\)\s*\d{4,5}-\d{4}/g);
+  const emailFallbacks = allMatches(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi)
+    .filter(email => !/@sjp\.pr\.gov\.br$/i.test(email));
+  const addressFallbacks = allMatches(/^([A-ZÀ-Ú0-9 .'-]+,\s*\d+,\s*[A-ZÀ-Ú0-9 .'-]+)$/gm);
+  const cityFallbacks = allMatches(/^([A-Za-zÀ-ú .'-]+?\s*-\s*[A-Z]{2})$/gm);
+  const cepFallbacks = allMatches(/\b\d{5}-\d{3}\b/g);
+  const nameFallbacks = allMatches(/^([A-ZÀ-Ú0-9][A-ZÀ-Ú0-9 .&'-]{8,}\s+LTDA)$/gm);
+
+  const finalTomaCNPJ = normalizeCNPJ(tomaCNPJRaw || occurrence(cnpjFallbacks, 1));
+  const finalTomaName = tomaName || occurrence(nameFallbacks, 1);
+  const finalTomaAddress = parseAddress(
+    `${tomaAddress.street}${tomaAddress.number ? `, ${tomaAddress.number}` : ''}${tomaAddress.district ? `, ${tomaAddress.district}` : ''}`
+      || occurrence(addressFallbacks, 1)
+  );
+  const finalTomaCity = parseCityUF(
+    `${tomaCity.city}${tomaCity.uf ? ` - ${tomaCity.uf}` : ''}` || occurrence(cityFallbacks, 1)
+  );
+  const finalTomaCEP = normalizeCEP(tomaCEPValue || occurrence(cepFallbacks, 1));
+  const finalTomaFone = formatPhone(tomaPhoneRaw || occurrence(phoneFallbacks, 1));
+  const finalTomaEmail = tomaEmailValue || occurrence(emailFallbacks, 1);
+  const tomaCMun = cityCode(finalTomaCity.city, finalTomaCity.uf);
 
   const locPrest = parseCityUF(valueAfter(servico, [/^local da prestacao$/]));
   const cLocPrestacao = cityCode(locPrest.city, locPrest.uf) || tomaCMun;
@@ -488,16 +513,16 @@ function extractNationalDanfseFields(text) {
     emitFone: formatPhone(valueAfter(prestador, [/^telefone$/])),
     emitEmail: valueAfter(prestador, [/^e-mail$/]),
     emitCMun,
-    tomaCNPJ: normalizeCNPJ(tomaCNPJRaw),
-    tomaNome: tomaName,
-    tomaLgr: tomaAddress.street,
-    tomaNro: tomaAddress.number,
-    tomaBairro: tomaAddress.district,
-    tomaCEP: normalizeCEP(tomaCEPValue),
-    tomaMun: tomaCity.city,
-    tomaUF: tomaCity.uf,
-    tomaFone: formatPhone(tomaPhoneRaw),
-    tomaEmail: tomaEmailValue,
+    tomaCNPJ: finalTomaCNPJ,
+    tomaNome: finalTomaName,
+    tomaLgr: finalTomaAddress.street,
+    tomaNro: finalTomaAddress.number,
+    tomaBairro: finalTomaAddress.district,
+    tomaCEP: finalTomaCEP,
+    tomaMun: finalTomaCity.city,
+    tomaUF: finalTomaCity.uf,
+    tomaFone: finalTomaFone,
+    tomaEmail: finalTomaEmail,
     tomaCMun,
     xDescServ: valueAfter(servico, [/^descricao do servico$/]),
     cTribNac,
